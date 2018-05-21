@@ -1,25 +1,11 @@
 /*
- *  HTTP over TLS (HTTPS) example sketch
- *
- *  This example demonstrates how to use
- *  WiFiClientSecure class to access HTTPS API.
- *  We fetch and display the status of
- *  esp8266/Arduino project continuous integration
- *  build.
- *
- *  Limitations:
- *    only RSA certificates
- *    no support of Perfect Forward Secrecy (PFS)
- *    TLSv1.2 is supported since version 2.4.0-rc1
- *
- *  Created by Ivan Grokhotkov, 2015.
- *  This example is in public domain.
- *  
  *  HTTPS 예제 수정 및 키패드 입력 후 matching 
+ *  Firebase uid 로 데이터 매칭, 비밀번호 매칭했을때만 열리게하기
  */
  
 #include <ESP8266WiFi.h>
 #include <WiFiClientSecure.h>
+#include <FirebaseArduino.h>
 
 #include <Keypad.h>
 #include <cstring>
@@ -39,8 +25,9 @@ char keys[ROWS][COLS] = {
 byte rowPins[ROWS] = {D8, D7, D6, D5}; 
 byte colPins[COLS] = {D4, D3, D0};
 
-char bufferKey[4];
-char answer[4];
+String bufferKey;
+String answer;
+String my_id = ""; //uid 매칭을 위한 나의 id
 
 int answer_index = 0;
 int key_size = 0; //숫자의 크기
@@ -48,78 +35,54 @@ bool input_flag = false; //*을 눌렀을 경우
 
 Keypad keypad = Keypad(makeKeymap(keys), rowPins, colPins, ROWS, COLS); 
 
-const char* ssid = "*";
-const char* password = "*";
+#define FIREBASE_HOST "Firebase 주소"
+#define FIREBASE_AUTH "비밀번호"
 
-const char* host = "서버명(HTTP빼고)";
-
-const int httpsPort = 443;
+#define WIFI_SSID "*"
+#define WIFI_PASSWORD "*"
 
 String line;
 
 // Use web browser to view and copy
 // SHA1 fingerprint of the certificate
-const char* fingerprint = "SHA 해쉬값";
+// const char* fingerprint = "SHA 해쉬값";
 
 void setup() {
   Serial.begin(115200);
-  Serial.println(ssid);
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(ssid, password);
+
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
     Serial.print(".");
   }
+  
   Serial.println("");
   Serial.println("WiFi connected");
   Serial.println("IP address: ");
   Serial.println(WiFi.localIP());
 
-  // Use WiFiClientSecure class to create TLS connection
-  WiFiClientSecure client;
-  Serial.print("connecting to ");
-  Serial.println(host);
-  if (!client.connect(host, httpsPort)) {
-    Serial.println("connection failed");
-    return;
-  }
-
+  /* SHA 해쉬값이용
   if (client.verify(fingerprint, host)) {
     Serial.println("certificate matches");
   } else {
     Serial.println("certificate doesn't match"); //해쉬값 틀릴경우
   }
+  */
 
-  String url = "/";
+  Firebase.begin(FIREBASE_HOST, FIREBASE_AUTH);
 
-  Serial.print("requesting URL: ");
-  Serial.println(url);
-
-  client.print(String("GET ") + url + " HTTP/1.1\r\n" +
-               "Host: " + host + "\r\n" +
-               "User-Agent: BuildFailureDetectorESP8266\r\n" +
-               "Connection: close\r\n\r\n");
-
-  Serial.println("request sent");
-  while (client.connected()) {
-    line = client.readStringUntil('\n');
-    if (line == "\r") {
-      Serial.println("headers received");
-      break;
-    }
+  String compare_id = Firebase.getString("uid/uid_name");
+  delay(1000);
+  if(my_id != compare_id){
+    Serial.println("해당 ID가 아닙니다. 종료");
+    return;
   }
-  
-Serial.println("4개의 키를 입력 후, *을 눌러주세요");
-
-char temp;
-while(client.available()){
-    temp = client.read();
-    answer[answer_index] = temp;
-    Serial.print(answer[answer_index]);
-    answer_index++;
-}
-Serial.println();
-
+  else{
+    answer = Firebase.getString("uid/password");
+    delay(1000);
+    Serial.println("4개의 키를 입력 후, *을 눌러주세요");
+  }
 }
 
 void loop() {
@@ -127,46 +90,52 @@ void loop() {
 
   if(key_size >= 5){
     Serial.println("초과한 키를 입력하여 자동으로 Flush 됩니다.");
-    memset(bufferKey,-1, 4);
+    bufferKey = "";
     key_size = 0;
   }
   
   else if(inputkey != NO_KEY){
     if(inputkey == '#'){
-      memset(bufferKey,-1,4);
+      bufferKey = "";
       key_size = 0;
       Serial.println("초기화입니다");
     }
     
     else if(inputkey == '*'){
-      if(input_flag){ //이미 처음에 눌렀을 경우 비밀번호 확인
-        bool true_false = false;
-        for(int i = 0; i < 4; i++){
-          if(answer[i] != bufferKey[i]){
+       bool true_false = false;
+       for(int i = 0; i < 4; i++){
+        if(answer[i] != bufferKey[i]){
             true_false = true;
             break;
-          }
         }
-        if(true_false){
-          memset(bufferKey,-1,4);
+       }
+       if(true_false || key_size < 4){
           Serial.println("틀렸습니다");
+          Firebase.setString("uid/uid_status", "open");
+          if (Firebase.failed()) {
+             Serial.print("setting /number failed:");
+             Serial.println(Firebase.error());  
+             return;
+          }
+          delay(1000);
         }
         else{
           Serial.println("맞았습니다");
+          Firebase.setString("uid/uid_status", "open");
+          if (Firebase.failed()) {
+             Serial.print("setting /number failed:");
+             Serial.println(Firebase.error());  
+             return;
+          }
+          delay(1000);
         }
-        input_flag = false;
+        bufferKey = "";
+        key_size = 0;        
       }
-      else { //초기입력
-        memset(bufferKey,-1,4);
-        input_flag = true;
+      else{
+        bufferKey += inputkey;
+        Serial.print(bufferKey[key_size]);
+        key_size++;
       }
-      key_size = 0;
     }
-    
-    else{
-      bufferKey[key_size] = inputkey;
-      Serial.print(bufferKey[key_size]);
-      key_size++;
-    }
-  }
 }
