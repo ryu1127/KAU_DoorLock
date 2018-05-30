@@ -29,6 +29,8 @@ String bufferKey;
 String answer;
 String my_id = ""; //uid 매칭을 위한 나의 id
 
+int R = D2; //릴레이 연결(솔레노이드 전력 낮춤)
+
 int answer_index = 0;
 int key_size = 0; //숫자의 크기
 bool input_flag = false; //*을 눌렀을 경우
@@ -50,6 +52,9 @@ String line;
 void setup() {
   Serial.begin(115200);
 
+  pinMode(R, OUTPUT); //초기 닫힌 상
+  digitalWrite(R, HIGH);
+  
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
   
   while (WiFi.status() != WL_CONNECTED) {
@@ -87,7 +92,7 @@ void setup() {
 
 void loop() {
   char inputkey = keypad.getKey();
-
+  
   if(key_size >= 5){
     Serial.println("초과한 키를 입력하여 자동으로 Flush 됩니다.");
     bufferKey = "";
@@ -117,7 +122,8 @@ void loop() {
              Serial.println(Firebase.error());  
              return;
           }
-          delay(1000);
+          digitalWrite(R, HIGH); // 닫힘
+          delay(50);
         }
         else{
           Serial.println("맞았습니다");
@@ -127,7 +133,9 @@ void loop() {
              Serial.println(Firebase.error());  
              return;
           }
-          delay(1000);
+          digitalWrite(R, LOW); // 열린 후 다시 닫힘
+          delay(500);
+          digitalWrite(R, HIGH); 
         }
         bufferKey = "";
         key_size = 0;        
